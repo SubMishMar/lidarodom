@@ -1,0 +1,7 @@
+<launch>
+        <param name ="/use_sim_time" value="true"/>
+	<node pkg="lidarodom" type="lidarodom" name="lidarodom"  output="screen">
+              <remap from="/velodyne_points" to="/kitti/velo/pointcloud"/>
+        </node>
+</launch>
+
