@@ -17,7 +17,6 @@ find_package(catkin REQUIRED COMPONENTS
   sensor_msgs
   geometry_msgs
   nav_msgs
-  cloud_msgs
 )
 
 find_package(PCL REQUIRED QUIET)
@@ -25,7 +24,7 @@ find_package(OpenCV REQUIRED QUIET)
 
 catkin_package(
   INCLUDE_DIRS include
-  CATKIN_DEPENDS cloud_msgs
+  CATKIN_DEPENDS
   DEPENDS PCL
 )
 
@@ -43,5 +42,5 @@ link_directories(
 )
 
 add_executable(lidarodom src/pcd_processing_node.cpp)
-add_dependencies(lidarodom ${catkin_EXPORTED_TARGETS} cloud_msgs_gencpp)
+add_dependencies(lidarodom ${catkin_EXPORTED_TARGETS})
 target_link_libraries(lidarodom ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})

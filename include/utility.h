@@ -8,7 +8,7 @@
 #include <sensor_msgs/PointCloud2.h>
 #include <nav_msgs/Odometry.h>
 
-#include "cloud_msgs/cloud_info.h"
+
 
 #include <opencv/cv.h>
 
@@ -74,11 +74,5 @@ extern const int groundScanInd = 30;
 // extern const float ang_bottom = 16.6+0.1;
 // extern const int groundScanInd = 15;
 
-extern const float sensorMountAngle = 0.0;
-extern const float segmentTheta = 1.0472;
-extern const int segmentValidPointNum = 5;
-extern const int segmentValidLineNum = 3;
-extern const float segmentAlphaX = ang_res_x / 180.0 * M_PI;
-extern const float segmentAlphaY = ang_res_y / 180.0 * M_PI;
 
 #endif
