@@ -1,8 +1,8 @@
 <?xml version="1.0"?>
 <package>
-  <name>lidarodom</name>
+  <name> motion_estimator </name>
   <version>1.0.0</version>
-  <description>lidarodom </description>
+  <description> motion_estimator </description>
 
   <maintainer email="xxx@xxx.xxx">Subodh </maintainer>
 

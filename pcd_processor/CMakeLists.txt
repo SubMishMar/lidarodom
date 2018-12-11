@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 2.8.3)
-project(lidarodom)
+project(pcd_processor)
 
 set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -std=c++11 -O3")
 
@@ -41,6 +41,6 @@ link_directories(
 	${PCL_LIBRARY_DIRS}
 )
 
-add_executable(lidarodom src/pcd_processing_node.cpp)
-add_dependencies(lidarodom ${catkin_EXPORTED_TARGETS})
-target_link_libraries(lidarodom ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})
+add_executable(pcd_processor src/pcd_processing_node.cpp)
+add_dependencies(pcd_processor ${catkin_EXPORTED_TARGETS})
+target_link_libraries(pcd_processor ${catkin_LIBRARIES} ${PCL_LIBRARIES} ${OpenCV_LIBRARIES})

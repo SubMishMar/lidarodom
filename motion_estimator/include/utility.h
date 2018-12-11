@@ -23,9 +23,21 @@
 #include <pcl/common/common.h>
 #include <pcl/registration/icp.h>
 
+#include <pcl/ModelCoefficients.h>
+#include <pcl/sample_consensus/method_types.h>
+#include <pcl/sample_consensus/model_types.h>
+#include <pcl/segmentation/sac_segmentation.h>
+#include <pcl/filters/passthrough.h>
+#include <pcl/filters/extract_indices.h>
+#include <pcl/filters/crop_box.h>
+
 #include <tf/transform_broadcaster.h>
 #include <tf/transform_datatypes.h>
- 
+#include <tf/transform_listener.h>
+#include <tf_conversions/tf_eigen.h>
+#include <Eigen/Core>
+#include <Eigen/Geometry>
+
 #include <vector>
 #include <cmath>
 #include <algorithm>

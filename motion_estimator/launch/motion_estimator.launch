@@ -1,0 +1,10 @@
+<launch>
+        <param name ="/use_sim_time" value="true"/>
+	<node pkg="pcd_processor" type="pcd_processor" name="pcd_processor"  output="screen">
+              <remap from="/velodyne_points" to="/kitti/velo/pointcloud"/>
+        </node>
+	<node pkg="motion_estimator" type="motion_estimator" name="motion_estimator"  output="screen">
+              <remap from="/velodyne_points" to="/filtered_cloud"/>
+        </node>
+</launch>
+
