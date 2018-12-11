@@ -6,6 +6,8 @@ private:
 
     ros::NodeHandle nh;
     ros::Subscriber subLaserCloud;
+    ros::Publisher pubICPPose;
+    ros::Publisher pubICPPath;
 
     pcl::PointCloud<PointType>::Ptr laserCloudIn_1;
     pcl::PointCloud<PointType>::Ptr laserCloudIn;
@@ -16,12 +18,22 @@ private:
 
     tf::TransformListener listener;
     tf::StampedTransform transform;
+
+    Eigen::Matrix4d global_init;
+    Eigen::Matrix4f global_transformation;
+    
+    geometry_msgs::PoseStamped output_pose;
+    nav_msgs::Path output_path;
+
 public:
     MotionEstimator():
         nh("~"){
 
         subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 1, &MotionEstimator::cloudHandler, this);
+        pubICPPose = nh.advertise<geometry_msgs::PoseStamped>("/icp/pose", 10);
+        pubICPPath = nh.advertise<nav_msgs::Path>("/icp/path", 10);
         first_time = true;
+        global_transformation = Eigen::Matrix4f::Identity();
         allocateMemory();
     }
 
@@ -45,8 +57,13 @@ public:
                                     now, ros::Duration(1.0));
           listener.lookupTransform("/world", "/init_frame",  
                                     now, transform);
-          tf::Vector3 origin = transform.getOrigin();
-          tf::Quaternion rotn = transform.getRotation();
+          tf::Transform tf_init;
+          tf_init.setOrigin(transform.getOrigin());
+          tf_init.setRotation(transform.getRotation());
+          Eigen::Affine3d eig_init;
+          tf::transformTFToEigen(tf_init, eig_init);
+          Eigen::Matrix4d global_init = eig_init.matrix();
+          global_transformation = global_init.cast<float>();
         }
         catch (tf::TransformException ex){
           ROS_ERROR("%s",ex.what());
@@ -54,26 +71,89 @@ public:
         }
     }
 
-    void runICP() {
+    void publishICPPath() {
+        output_path.header = cloudHeader;
+        output_path.header.frame_id = "world";
+        output_path.poses.push_back(output_pose);
+        pubICPPath.publish(output_path);
+    }
+
+    void publishICPPose() {
+        tf::Vector3 origin;
+        origin.setValue(static_cast<double>(global_transformation(0,3)),
+                        static_cast<double>(global_transformation(1,3)),
+                        static_cast<double>(global_transformation(2,3)));
+        Eigen::Matrix3f rotn_float = global_transformation.block(0, 0, 3, 3).cast<float>();
+        tf::Matrix3x3 rotn_tf;
+        tf::matrixEigenToTF(rotn_float.cast<double>(), rotn_tf);
+        tf::Quaternion tfqt;
+        rotn_tf.getRotation(tfqt);
+        output_pose.header = cloudHeader;
+        output_pose.header.frame_id = "world";
+        output_pose.pose.position.x = origin.getX();
+        output_pose.pose.position.y = origin.getY();
+        output_pose.pose.position.z = origin.getZ();
+        output_pose.pose.orientation.x = tfqt[0];
+        output_pose.pose.orientation.y = tfqt[1];
+        output_pose.pose.orientation.z = tfqt[2];
+        output_pose.pose.orientation.w = tfqt[3];
+        pubICPPose.publish(output_pose);
+        publishICPPath();
+    }
+
+    void runICPPointToPoint() {
         pcl::IterativeClosestPoint<pcl::PointXYZ, pcl::PointXYZ> icp;
         icp.setInputSource(laserCloudIn_1);
         icp.setInputTarget(laserCloudIn);
+        icp.setMaxCorrespondenceDistance (0.10);
         pcl::PointCloud<pcl::PointXYZ> Final;
         icp.align(Final);
-        std::cout << "ICP has converged:" << icp.hasConverged() << " score: " << icp.getFitnessScore() << std::endl;
-        std::cout << icp.getFinalTransformation() << std::endl;
+        if(icp.hasConverged()) {
+            Eigen::Matrix4f transformation = (icp.getFinalTransformation()).inverse();
+            global_transformation = global_transformation*transformation;
+            publishICPPose();
+        } else {
+            ROS_WARN("ICP didn't converge");
+        }
     }
 
+    void addNormal(pcl::PointCloud<pcl::PointXYZ>::Ptr cloud,
+               pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_with_normals
+    ){
+       pcl::PointCloud<pcl::Normal>::Ptr normals ( new pcl::PointCloud<pcl::Normal> );
+
+       pcl::search::KdTree<pcl::PointXYZ>::Ptr searchTree (new pcl::search::KdTree<pcl::PointXYZ>);
+       searchTree->setInputCloud ( cloud );
+
+       pcl::NormalEstimation<pcl::PointXYZ, pcl::Normal> normalEstimator;
+       normalEstimator.setInputCloud ( cloud );
+       normalEstimator.setSearchMethod ( searchTree );
+       normalEstimator.setKSearch ( 15 );
+       normalEstimator.compute ( *normals );
+      
+       pcl::concatenateFields( *cloud, *normals, *cloud_with_normals );
+    }
+
+    void runICPPointToPlane() {
+        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_source_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_target_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        addNormal(laserCloudIn_1, cloud_target_normals);
+        addNormal(laserCloudIn, cloud_target_normals);
+        pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal>::Ptr icp ( new pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> () );
+        icp->setInputSource(cloud_source_normals);
+        icp->setInputTarget(cloud_target_normals);
+    }
+    //https://github.com/tttamaki/ICP-test/blob/master/src/icp3_with_normal_iterative_view.cpp
     void cloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg){  
         cloudHeader = laserCloudMsg->header;
         if(first_time) {
             first_time = false;
             pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn_1);
-            getInitTransform();         
+            getInitTransform();
+            publishICPPose();          
         } else {
             pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn);
-            std::cout << laserCloudIn_1->points.size() << "\t" << laserCloudIn->points.size() << std::endl;
-            runICP();
+            runICPPointToPoint();
             resetVariables();
         }
         

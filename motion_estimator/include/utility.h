@@ -1,13 +1,30 @@
 #ifndef _UTILITY_LIDAR_ODOMETRY_H_
 #define _UTILITY_LIDAR_ODOMETRY_H_
 
+#include <vector>
+#include <cmath>
+#include <algorithm>
+#include <queue>
+#include <deque>
+#include <iostream>
+#include <fstream>
+#include <ctime>
+#include <cfloat>
+#include <iterator>
+#include <sstream>
+#include <string>
+#include <limits>
+#include <iomanip>
+#include <array>
+#include <thread>
+#include <mutex>
 
 #include <ros/ros.h>
 
 #include <sensor_msgs/Imu.h>
 #include <sensor_msgs/PointCloud2.h>
 #include <nav_msgs/Odometry.h>
-
+#include <nav_msgs/Path.h>
 
 
 #include <opencv/cv.h>
@@ -30,31 +47,19 @@
 #include <pcl/filters/passthrough.h>
 #include <pcl/filters/extract_indices.h>
 #include <pcl/filters/crop_box.h>
+#include <pcl/features/normal_3d.h>
+#include <pcl/registration/transformation_estimation_point_to_plane_lls.h>
 
 #include <tf/transform_broadcaster.h>
 #include <tf/transform_datatypes.h>
 #include <tf/transform_listener.h>
 #include <tf_conversions/tf_eigen.h>
+
 #include <Eigen/Core>
 #include <Eigen/Geometry>
+#include <Eigen/Dense>
 
-#include <vector>
-#include <cmath>
-#include <algorithm>
-#include <queue>
-#include <deque>
-#include <iostream>
-#include <fstream>
-#include <ctime>
-#include <cfloat>
-#include <iterator>
-#include <sstream>
-#include <string>
-#include <limits>
-#include <iomanip>
-#include <array>
-#include <thread>
-#include <mutex>
+
 
 #define PI 3.14159265
 
