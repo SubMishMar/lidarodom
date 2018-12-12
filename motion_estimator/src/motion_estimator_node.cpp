@@ -137,12 +137,22 @@ public:
     void runICPPointToPlane() {
         pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_source_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
         pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_target_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
-        addNormal(laserCloudIn_1, cloud_target_normals);
+        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr Final( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        addNormal(laserCloudIn_1, cloud_source_normals);
         addNormal(laserCloudIn, cloud_target_normals);
         pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal>::Ptr icp ( new pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> () );
         icp->setInputSource(cloud_source_normals);
         icp->setInputTarget(cloud_target_normals);
+        icp->align(*Final);
+        if(icp->hasConverged()) {
+            Eigen::Matrix4f transformation = icp->getFinalTransformation().inverse();
+            global_transformation = global_transformation*transformation;
+            publishICPPose();
+        } else {
+           ROS_WARN("ICP didn't converge"); 
+        }
     }
+    
     //https://github.com/tttamaki/ICP-test/blob/master/src/icp3_with_normal_iterative_view.cpp
     void cloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg){  
         cloudHeader = laserCloudMsg->header;
@@ -153,7 +163,8 @@ public:
             publishICPPose();          
         } else {
             pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn);
-            runICPPointToPoint();
+            //runICPPointToPoint();
+            runICPPointToPlane();
             resetVariables();
         }
         

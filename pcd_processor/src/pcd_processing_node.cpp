@@ -58,7 +58,7 @@ public:
 		// pass_z.setNegative(true);
 		pass_z.setInputCloud (laserCloudIn);
 		pass_z.setFilterFieldName ("z");
-		pass_z.setFilterLimits (-1, 1);
+		pass_z.setFilterLimits (-1, 2);
 		pass_z.filter (*laserCloudIn);
 
 		//std::cout << laserCloudIn->size() << std::endl;
@@ -70,7 +70,7 @@ public:
     	seg.setOptimizeCoefficients (true);
     	seg.setModelType (pcl::SACMODEL_PLANE);
     	seg.setMethodType (pcl::SAC_RANSAC);
-    	seg.setDistanceThreshold (0.5);
+    	seg.setDistanceThreshold (0.3);
     	seg.setInputCloud (laserCloudIn);
     	seg.segment (*inliers, *coefficients);
 		if (inliers->indices.size () == 0) {
