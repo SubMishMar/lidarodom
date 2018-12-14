@@ -166,6 +166,8 @@ public:
         norm_est.compute (*points_with_normals_tgt);
         pcl::copyPointCloud (*laserCloudIn, *points_with_normals_tgt);
 
+        MyPointRepresentation point_representation;
+        float alpha[4] = {1.0, 1.};
     }
     
     //https://github.com/tttamaki/ICP-test/blob/master/src/icp3_with_normal_iterative_view.cpp
