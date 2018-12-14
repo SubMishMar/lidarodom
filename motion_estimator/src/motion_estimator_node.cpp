@@ -9,8 +9,8 @@ private:
     ros::Publisher pubICPPose;
     ros::Publisher pubICPPath;
 
-    pcl::PointCloud<PointType>::Ptr laserCloudIn_1;
-    pcl::PointCloud<PointType>::Ptr laserCloudIn;
+    pcl::PointCloud<PointT>::Ptr laserCloudIn_1;
+    pcl::PointCloud<PointT>::Ptr laserCloudIn;
 
     std_msgs::Header cloudHeader;
 
@@ -38,8 +38,8 @@ public:
     }
 
     void allocateMemory(){
-        laserCloudIn_1.reset(new pcl::PointCloud<PointType>());
-        laserCloudIn.reset(new pcl::PointCloud<PointType>());
+        laserCloudIn_1.reset(new pcl::PointCloud<PointT>());
+        laserCloudIn.reset(new pcl::PointCloud<PointT>());
     }
 
     void resetVariables(){
@@ -135,25 +135,41 @@ public:
     }
 
     void runICPPointToPlane() {
-        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_source_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
-        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_target_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
-        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr Final( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
-        addNormal(laserCloudIn_1, cloud_source_normals);
-        addNormal(laserCloudIn, cloud_target_normals);
-        pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal>::Ptr icp ( new pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> () );
-        icp->setInputSource(cloud_source_normals);
-        icp->setInputTarget(cloud_target_normals);
-        icp->align(*Final);
-        if(icp->hasConverged()) {
-            Eigen::Matrix4f transformation = icp->getFinalTransformation().inverse();
-            global_transformation = global_transformation*transformation;
-            publishICPPose();
-        } else {
-           ROS_WARN("ICP didn't converge"); 
-        }
+        // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_source_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_target_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr Final( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        // addNormal(laserCloudIn_1, cloud_source_normals);
+        // addNormal(laserCloudIn, cloud_target_normals);
+        // pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal>::Ptr icp ( new pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> () );
+        // icp->setInputSource(cloud_source_normals);
+        // icp->setInputTarget(cloud_target_normals);
+        // icp->align(*Final);
+        // if(icp->hasConverged()) {
+        //     Eigen::Matrix4f transformation = icp->getFinalTransformation().inverse();
+        //     global_transformation = global_transformation*transformation;
+        //     publishICPPose();
+        // } else {
+        //    ROS_WARN("ICP didn't converge"); 
+        // }
+        PointCloudWithNormals::Ptr points_with_normals_src (new PointCloudWithNormals);
+        PointCloudWithNormals::Ptr points_with_normals_tgt (new PointCloudWithNormals);
+        pcl::NormalEstimation<PointT, PointNormalT> norm_est;
+        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
+        norm_est.setSearchMethod(tree);
+        norm_est.setKSearch (30);
+
+        norm_est.setInputCloud (laserCloudIn_1);
+        norm_est.compute (*points_with_normals_src);
+        pcl::copyPointCloud (*laserCloudIn_1, *points_with_normals_src);
+
+        norm_est.setInputCloud (laserCloudIn);
+        norm_est.compute (*points_with_normals_tgt);
+        pcl::copyPointCloud (*laserCloudIn, *points_with_normals_tgt);
+
     }
     
     //https://github.com/tttamaki/ICP-test/blob/master/src/icp3_with_normal_iterative_view.cpp
+    //http://pointclouds.org/documentation/tutorials/pairwise_incremental_registration.php#pairwise-incremental-registration
     void cloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg){  
         cloudHeader = laserCloudMsg->header;
         if(first_time) {

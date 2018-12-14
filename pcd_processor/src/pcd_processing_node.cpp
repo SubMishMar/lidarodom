@@ -45,7 +45,7 @@ public:
 		pcl::PCLPointCloud2::Ptr laserCloudIn2(new pcl::PCLPointCloud2 ());
 		pcl::toPCLPointCloud2(*laserCloudIn, *laserCloudIn2);
 		sor.setInputCloud(laserCloudIn2);
-		sor.setLeafSize (0.3f, 0.3f, 0.3f);
+		sor.setLeafSize (0.30f, 0.30f, 0.30f);
 		sor.filter(*laserCloudIn2);
 		pcl::fromPCLPointCloud2(*laserCloudIn2, *laserCloudIn);
 		//std::cout << laserCloudIn->size() << std::endl;
