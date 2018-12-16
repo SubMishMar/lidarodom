@@ -225,7 +225,11 @@ public:
         publishICPPose();
         Eigen::Matrix4f poseDiff = last_keyframe_pose.inverse()*global_pose;
         Eigen::Vector3f positionDiff{poseDiff(0,3), poseDiff(1,3), poseDiff(2,3)};
-        if(positionDiff.norm() >= KF_THRESHOLD) {
+        Eigen::Matrix3f rotmatDiff = poseDiff.block(0, 0, 3, 3);
+        Eigen::AngleAxisf rotDiffAngleAxis(rotmatDiff);
+        double angleDiff = rotDiffAngleAxis.angle()*180/PI;
+        if(positionDiff.norm() >= KF_DIST_THRESHOLD || angleDiff >= KF_ANG_THRESHOLD) {
+            std::cout << "Angle: " << angleDiff << std::endl;
             Eigen::Matrix4f transformation_KFj;
             pairAlign(laserCloudIn_lastKeyFrame, laserCloudIn, transformation_KFj);
             global_pose_KF = last_keyframe_pose*transformation_KFj;
