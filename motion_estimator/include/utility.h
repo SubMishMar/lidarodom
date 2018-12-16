@@ -89,7 +89,7 @@ extern const float ang_res_y = 26.9/float(N_SCAN-1); // Vertical Resolution
 extern const float ang_bottom = 25.0;
 extern const int groundScanInd = 30;
 extern const double gravity = 9.80945;
-extern const double KF_THRESHOLD = 20;
+extern const double KF_THRESHOLD = 10;
 // Ouster OS1-64
 // extern const int N_SCAN = 64;
 // extern const int Horizon_SCAN = 1024;

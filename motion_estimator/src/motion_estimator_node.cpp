@@ -6,13 +6,16 @@ private:
 
     ros::NodeHandle nh;
     ros::Subscriber subLaserCloud;
-    ros::Subscriber subIMU;
+    //ros::Subscriber subIMU;
     ros::Publisher pubICPPose;
+    ros::Publisher pubKFPose;
     ros::Publisher pubICPPath;
+    ros::Publisher pubKFPath;
+    //ros::Publisher pubCloud;
 
     pcl::PointCloud<PointT>::Ptr laserCloudIn_1;
     pcl::PointCloud<PointT>::Ptr laserCloudIn;
-    pcl::PointCloud<PointT>::Ptr output_cloud;
+    pcl::PointCloud<PointT>::Ptr laserCloudIn_lastKeyFrame;
 
     std_msgs::Header cloudHeader;
     std_msgs::Header imuHeader;
@@ -25,9 +28,15 @@ private:
     Eigen::Matrix4d global_init;
     Eigen::Matrix4f global_pose;
     Eigen::Matrix4f last_keyframe_pose;
+    Eigen::Matrix4f global_pose_KF;
 
     geometry_msgs::PoseStamped output_pose;
     nav_msgs::Path output_path;
+
+    geometry_msgs::PoseStamped output_KFpose;
+    nav_msgs::Path output_KFpath;
+
+    //sensor_msgs::PointCloud2 laserCloudOut;
 
 public:
     MotionEstimator():
@@ -35,17 +44,21 @@ public:
 
         subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 1, &MotionEstimator::cloudHandler, this);
         //subIMU = nh.subscribe<sensor_msgs::Imu>("/imu_data",10, &MotionEstimator::imuHandler, this);
+        //pubCloud = nh.advertise<sensor_msgs::PointCloud2> ("/icp/cloud", 1);
+        pubKFPose = nh.advertise<geometry_msgs::PoseStamped>("/icp/kf/pose", 10);
+        pubKFPath = nh.advertise<nav_msgs::Path>("/icp/kf/path", 10);
+        
         pubICPPose = nh.advertise<geometry_msgs::PoseStamped>("/icp/pose", 10);
         pubICPPath = nh.advertise<nav_msgs::Path>("/icp/path", 10);
         first_time = true;
-        global_pose = last_keyframe_pose = Eigen::Matrix4f::Identity(); 
+        global_pose_KF = global_pose = last_keyframe_pose = Eigen::Matrix4f::Identity(); 
         allocateMemory();
     }
 
     void allocateMemory(){
         laserCloudIn_1.reset(new pcl::PointCloud<PointT>());
         laserCloudIn.reset(new pcl::PointCloud<PointT>());
-        output_cloud.reset(new pcl::PointCloud<PointT>());
+        laserCloudIn_lastKeyFrame.reset(new pcl::PointCloud<PointT>());
     }
 
     void resetVariables(){
@@ -69,7 +82,7 @@ public:
           Eigen::Affine3d eig_init;
           tf::transformTFToEigen(tf_init, eig_init);
           Eigen::Matrix4d global_init = eig_init.matrix();
-          global_pose = global_init.cast<float>();
+          global_pose = last_keyframe_pose = global_init.cast<float>();
         }
         catch (tf::TransformException ex){
           ROS_ERROR("%s",ex.what());
@@ -77,11 +90,26 @@ public:
         }
     }
 
+    void publishTF() {
+        static tf::TransformBroadcaster br;
+        tf::Transform transform;
+        transform.setOrigin( tf::Vector3(output_pose.pose.position.x, output_pose.pose.position.y, output_pose.pose.position.z) );
+        transform.setRotation(tf::Quaternion(output_pose.pose.orientation.x, output_pose.pose.orientation.y, output_pose.pose.orientation.z, output_pose.pose.orientation.w));
+        br.sendTransform(tf::StampedTransform(transform, ros::Time::now(), "world", "odom"));       
+    }
+
     void publishICPPath() {
         output_path.header = cloudHeader;
         output_path.header.frame_id = "world";
         output_path.poses.push_back(output_pose);
         pubICPPath.publish(output_path);
+    }
+
+    void publishKFPath() {
+        output_KFpath.header = cloudHeader;
+        output_KFpath.header.frame_id = "world";
+        output_KFpath.poses.push_back(output_KFpose);
+        pubKFPath.publish(output_KFpath);
     }
 
     void publishICPPose() {
@@ -103,8 +131,33 @@ public:
         output_pose.pose.orientation.y = tfqt[1];
         output_pose.pose.orientation.z = tfqt[2];
         output_pose.pose.orientation.w = tfqt[3];
+        publishTF();
+        //publishCloud();
         pubICPPose.publish(output_pose);
         publishICPPath();
+    }
+
+    void publishKFPose() {
+        tf::Vector3 origin;
+        origin.setValue(static_cast<double>(global_pose_KF(0,3)),
+                        static_cast<double>(global_pose_KF(1,3)),
+                        static_cast<double>(global_pose_KF(2,3)));
+        Eigen::Matrix3f rotn_float = global_pose_KF.block(0, 0, 3, 3).cast<float>();
+        tf::Matrix3x3 rotn_tf;
+        tf::matrixEigenToTF(rotn_float.cast<double>(), rotn_tf);
+        tf::Quaternion tfqt;
+        rotn_tf.getRotation(tfqt);
+        output_KFpose.header = cloudHeader;
+        output_KFpose.header.frame_id = "world";
+        output_KFpose.pose.position.x = origin.getX();
+        output_KFpose.pose.position.y = origin.getY();
+        output_KFpose.pose.position.z = origin.getZ();
+        output_KFpose.pose.orientation.x = tfqt[0];
+        output_KFpose.pose.orientation.y = tfqt[1];
+        output_KFpose.pose.orientation.z = tfqt[2];
+        output_KFpose.pose.orientation.w = tfqt[3];
+        pubKFPose.publish(output_KFpose);
+        publishKFPath();
     }
 
     void runICPPointToPoint() {
@@ -140,35 +193,45 @@ public:
        pcl::concatenateFields( *cloud, *normals, *cloud_with_normals );
     }
 
-    void runICPPointToPlane() {
+    void pairAlign(pcl::PointCloud<PointT>::Ptr cloud_src, const pcl::PointCloud<PointT>::Ptr cloud_tgt, Eigen::Matrix4f &transformation) {
         pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_source_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
         pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_target_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
         pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr Final( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
-        addNormal(laserCloudIn_1, cloud_source_normals);
-        addNormal(laserCloudIn, cloud_target_normals);
+        addNormal(cloud_src, cloud_source_normals);
+        addNormal(cloud_tgt, cloud_target_normals);
         pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal>::Ptr icp ( new pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> () );
         icp->setInputSource(cloud_source_normals);
         icp->setInputTarget(cloud_target_normals);
 
         //icp->setMaxCorrespondenceDistance(0.50);
         //icp->setMaximumIterations (50);
-        //icp->setTransformationEpsilon(1e-6);
+        icp->setTransformationEpsilon(1e-8);
         //icp->setEuclideanFitnessEpsilon (1);
 
         icp->align(*Final);
         if(icp->hasConverged()) {
-            Eigen::Matrix4f transformation = icp->getFinalTransformation().inverse();
-            global_pose = global_pose*transformation;
-            publishICPPose();
-            Eigen::Matrix4f poseDiff = last_keyframe_pose.inverse()*global_pose;
-            Eigen::Vector3f positionDiff{poseDiff(0,3), poseDiff(1,3), poseDiff(2,3)};
-            if(positionDiff.norm() >= KF_THRESHOLD) {
-                last_keyframe_pose = global_pose;
-                ROS_INFO("New KF added");
-            }
+            //std::cout << " score: " << icp->getFitnessScore() << std::endl;
+            transformation = icp->getFinalTransformation().inverse();
 
         } else {
            ROS_WARN("ICP didn't converge"); 
+        }
+    }
+
+    void runICPPointToPlane() {
+        Eigen::Matrix4f transformation_ij;
+        pairAlign(laserCloudIn_1, laserCloudIn, transformation_ij);
+        global_pose = global_pose*transformation_ij;
+        publishICPPose();
+        Eigen::Matrix4f poseDiff = last_keyframe_pose.inverse()*global_pose;
+        Eigen::Vector3f positionDiff{poseDiff(0,3), poseDiff(1,3), poseDiff(2,3)};
+        if(positionDiff.norm() >= KF_THRESHOLD) {
+            Eigen::Matrix4f transformation_KFj;
+            pairAlign(laserCloudIn_lastKeyFrame, laserCloudIn, transformation_KFj);
+            global_pose_KF = last_keyframe_pose*transformation_KFj;
+            publishKFPose();
+            *laserCloudIn_lastKeyFrame = *laserCloudIn;
+            last_keyframe_pose = global_pose;
         }
     }
     
@@ -179,6 +242,7 @@ public:
         if(first_time) {
             first_time = false;
             pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn_1);
+            *laserCloudIn_lastKeyFrame = *laserCloudIn_1;
             getInitTransform();
             publishICPPose();         
         } else {
