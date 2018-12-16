@@ -71,31 +71,7 @@ using namespace std;
 
 //convenient typedefs
 typedef pcl::PointXYZ PointT;
-typedef pcl::PointCloud<PointT> PointCloud;
-typedef pcl::PointNormal PointNormalT;
-typedef pcl::PointCloud<PointNormalT> PointCloudWithNormals;
 
-// Define a new point representation for < x, y, z, curvature >
-class MyPointRepresentation : public pcl::PointRepresentation <PointNormalT>
-{
-  using pcl::PointRepresentation<PointNormalT>::nr_dimensions_;
-public:
-  MyPointRepresentation ()
-  {
-    // Define the number of dimensions
-    nr_dimensions_ = 4;
-  }
-
-  // Override the copyToFloatArray method to define our feature vector
-  virtual void copyToFloatArray (const PointNormalT &p, float * out) const
-  {
-    // < x, y, z, curvature >
-    out[0] = p.x;
-    out[1] = p.y;
-    out[2] = p.z;
-    out[3] = p.curvature;
-  }
-};
 
 // VLP-16
 // extern const int N_SCAN = 16;
@@ -112,7 +88,8 @@ extern const float ang_res_x = 360.0/float(Horizon_SCAN); // Horizontal Resoluti
 extern const float ang_res_y = 26.9/float(N_SCAN-1); // Vertical Resolution
 extern const float ang_bottom = 25.0;
 extern const int groundScanInd = 30;
-
+extern const double gravity = 9.80945;
+extern const double KF_THRESHOLD = 20;
 // Ouster OS1-64
 // extern const int N_SCAN = 64;
 // extern const int Horizon_SCAN = 1024;

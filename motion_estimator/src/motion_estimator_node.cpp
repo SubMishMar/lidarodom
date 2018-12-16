@@ -6,13 +6,16 @@ private:
 
     ros::NodeHandle nh;
     ros::Subscriber subLaserCloud;
+    ros::Subscriber subIMU;
     ros::Publisher pubICPPose;
     ros::Publisher pubICPPath;
 
     pcl::PointCloud<PointT>::Ptr laserCloudIn_1;
     pcl::PointCloud<PointT>::Ptr laserCloudIn;
+    pcl::PointCloud<PointT>::Ptr output_cloud;
 
     std_msgs::Header cloudHeader;
+    std_msgs::Header imuHeader;
 
     bool first_time;
 
@@ -20,8 +23,9 @@ private:
     tf::StampedTransform transform;
 
     Eigen::Matrix4d global_init;
-    Eigen::Matrix4f global_transformation;
-    
+    Eigen::Matrix4f global_pose;
+    Eigen::Matrix4f last_keyframe_pose;
+
     geometry_msgs::PoseStamped output_pose;
     nav_msgs::Path output_path;
 
@@ -30,16 +34,18 @@ public:
         nh("~"){
 
         subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 1, &MotionEstimator::cloudHandler, this);
+        //subIMU = nh.subscribe<sensor_msgs::Imu>("/imu_data",10, &MotionEstimator::imuHandler, this);
         pubICPPose = nh.advertise<geometry_msgs::PoseStamped>("/icp/pose", 10);
         pubICPPath = nh.advertise<nav_msgs::Path>("/icp/path", 10);
         first_time = true;
-        global_transformation = Eigen::Matrix4f::Identity();
+        global_pose = last_keyframe_pose = Eigen::Matrix4f::Identity(); 
         allocateMemory();
     }
 
     void allocateMemory(){
         laserCloudIn_1.reset(new pcl::PointCloud<PointT>());
         laserCloudIn.reset(new pcl::PointCloud<PointT>());
+        output_cloud.reset(new pcl::PointCloud<PointT>());
     }
 
     void resetVariables(){
@@ -63,7 +69,7 @@ public:
           Eigen::Affine3d eig_init;
           tf::transformTFToEigen(tf_init, eig_init);
           Eigen::Matrix4d global_init = eig_init.matrix();
-          global_transformation = global_init.cast<float>();
+          global_pose = global_init.cast<float>();
         }
         catch (tf::TransformException ex){
           ROS_ERROR("%s",ex.what());
@@ -80,10 +86,10 @@ public:
 
     void publishICPPose() {
         tf::Vector3 origin;
-        origin.setValue(static_cast<double>(global_transformation(0,3)),
-                        static_cast<double>(global_transformation(1,3)),
-                        static_cast<double>(global_transformation(2,3)));
-        Eigen::Matrix3f rotn_float = global_transformation.block(0, 0, 3, 3).cast<float>();
+        origin.setValue(static_cast<double>(global_pose(0,3)),
+                        static_cast<double>(global_pose(1,3)),
+                        static_cast<double>(global_pose(2,3)));
+        Eigen::Matrix3f rotn_float = global_pose.block(0, 0, 3, 3).cast<float>();
         tf::Matrix3x3 rotn_tf;
         tf::matrixEigenToTF(rotn_float.cast<double>(), rotn_tf);
         tf::Quaternion tfqt;
@@ -110,7 +116,7 @@ public:
         icp.align(Final);
         if(icp.hasConverged()) {
             Eigen::Matrix4f transformation = (icp.getFinalTransformation()).inverse();
-            global_transformation = global_transformation*transformation;
+            global_pose = global_pose*transformation;
             publishICPPose();
         } else {
             ROS_WARN("ICP didn't converge");
@@ -135,39 +141,35 @@ public:
     }
 
     void runICPPointToPlane() {
-        // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_source_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
-        // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_target_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
-        // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr Final( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
-        // addNormal(laserCloudIn_1, cloud_source_normals);
-        // addNormal(laserCloudIn, cloud_target_normals);
-        // pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal>::Ptr icp ( new pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> () );
-        // icp->setInputSource(cloud_source_normals);
-        // icp->setInputTarget(cloud_target_normals);
-        // icp->align(*Final);
-        // if(icp->hasConverged()) {
-        //     Eigen::Matrix4f transformation = icp->getFinalTransformation().inverse();
-        //     global_transformation = global_transformation*transformation;
-        //     publishICPPose();
-        // } else {
-        //    ROS_WARN("ICP didn't converge"); 
-        // }
-        PointCloudWithNormals::Ptr points_with_normals_src (new PointCloudWithNormals);
-        PointCloudWithNormals::Ptr points_with_normals_tgt (new PointCloudWithNormals);
-        pcl::NormalEstimation<PointT, PointNormalT> norm_est;
-        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
-        norm_est.setSearchMethod(tree);
-        norm_est.setKSearch (30);
+        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_source_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_target_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr Final( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        addNormal(laserCloudIn_1, cloud_source_normals);
+        addNormal(laserCloudIn, cloud_target_normals);
+        pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal>::Ptr icp ( new pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> () );
+        icp->setInputSource(cloud_source_normals);
+        icp->setInputTarget(cloud_target_normals);
 
-        norm_est.setInputCloud (laserCloudIn_1);
-        norm_est.compute (*points_with_normals_src);
-        pcl::copyPointCloud (*laserCloudIn_1, *points_with_normals_src);
+        //icp->setMaxCorrespondenceDistance(0.50);
+        //icp->setMaximumIterations (50);
+        //icp->setTransformationEpsilon(1e-6);
+        //icp->setEuclideanFitnessEpsilon (1);
 
-        norm_est.setInputCloud (laserCloudIn);
-        norm_est.compute (*points_with_normals_tgt);
-        pcl::copyPointCloud (*laserCloudIn, *points_with_normals_tgt);
+        icp->align(*Final);
+        if(icp->hasConverged()) {
+            Eigen::Matrix4f transformation = icp->getFinalTransformation().inverse();
+            global_pose = global_pose*transformation;
+            publishICPPose();
+            Eigen::Matrix4f poseDiff = last_keyframe_pose.inverse()*global_pose;
+            Eigen::Vector3f positionDiff{poseDiff(0,3), poseDiff(1,3), poseDiff(2,3)};
+            if(positionDiff.norm() >= KF_THRESHOLD) {
+                last_keyframe_pose = global_pose;
+                ROS_INFO("New KF added");
+            }
 
-        MyPointRepresentation point_representation;
-        float alpha[4] = {1.0, 1.};
+        } else {
+           ROS_WARN("ICP didn't converge"); 
+        }
     }
     
     //https://github.com/tttamaki/ICP-test/blob/master/src/icp3_with_normal_iterative_view.cpp
@@ -178,7 +180,7 @@ public:
             first_time = false;
             pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn_1);
             getInitTransform();
-            publishICPPose();          
+            publishICPPose();         
         } else {
             pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn);
             //runICPPointToPoint();
@@ -187,6 +189,28 @@ public:
         }
         
     }
+
+    // void processIMU(const sensor_msgs::ImuConstPtr &imu_msg) {
+    //     // TODO: Continue working on this la'er
+    //     imuHeader = imu_msg->header;
+
+    //     // Acceleration
+    //     double ddx = imu_msg->linear_acceleration.x;
+    //     double ddy = imu_msg->linear_acceleration.y;
+    //     double ddz = imu_msg->linear_acceleration.z - gravity;
+    //     Eigen::Vector3d linear_acceleration{ddx, ddy, ddz};
+    //     std::cout << ddz << std::endl;
+    //     // Angular Velocity
+    //     double rx = imu_msg->angular_velocity.x;
+    //     double ry = imu_msg->angular_velocity.y;
+    //     double rz = imu_msg->angular_velocity.z;
+    //     Eigen::Vector3d angular_velocity{rx, ry, rz};   
+
+    // }
+
+    // void imuHandler(const sensor_msgs::ImuConstPtr &imu_msg) {
+    //     processIMU(imu_msg);
+    // }
 };
 
 

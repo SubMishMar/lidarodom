@@ -3,8 +3,10 @@
 	<node pkg="pcd_processor" type="pcd_processor" name="pcd_processor"  output="screen">
               <remap from="/velodyne_points" to="/kitti/velo/pointcloud"/>
         </node>
+
 	<node pkg="motion_estimator" type="motion_estimator" name="motion_estimator"  output="screen">
               <remap from="/velodyne_points" to="/filtered_cloud"/>
+              <remap from="/imu_data" to="/kitti/oxts/imu"/>
         </node>
 </launch>
 
