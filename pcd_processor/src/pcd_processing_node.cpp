@@ -5,102 +5,97 @@ class PcdProcessor{
 private:
 
     ros::NodeHandle nh;
+
+    // subscribers
     ros::Subscriber subLaserCloud;
+
+    // publishers
     ros::Publisher pubFilteredCloud;
 
-    pcl::PointCloud<PointType>::Ptr laserCloudIn;
-    pcl::ModelCoefficients::Ptr coefficients;
-    pcl::PointIndices::Ptr inliers;
-
-
+    // Header for input cloud
     std_msgs::Header cloudHeader;
-    sensor_msgs::PointCloud2 laserCloudOut;
+
+	// libpointmatcher
+	PM::DataPointsFilters inputFilters;
+
+    //parameters
+    double minOverlap;
+    double maxOverlapToMerge;
+    int minReadingPointCount;
 
 public:
     PcdProcessor():
         nh("~"){
 
-        subLaserCloud = nh.subscribe<sensor_msgs::PointCloud2>("/velodyne_points", 1, &PcdProcessor::cloudHandler, this);
+        subLaserCloud = nh.subscribe("/velodyne_points", 1, &PcdProcessor::cloudHandler, this);
         pubFilteredCloud = nh.advertise<sensor_msgs::PointCloud2> ("/filtered_cloud", 1);
-
+        readParams();
         allocateMemory();
         resetParameters();
     }
 
+    void readParams() {
+    	nh.param<double>("minOverlap", minOverlap, 0.5);
+    	nh.param<double>("maxOverlapToMerge", maxOverlapToMerge, 0.9);
+    	nh.param<int>("minReadingPointCount", minReadingPointCount, 2000);
+    	std::string configFileName;
+		if (ros::param::get("~inputFiltersConfig", configFileName)){
+			std::ifstream ifs(configFileName.c_str());
+			if (ifs.good()){
+				inputFilters = PM::DataPointsFilters(ifs);
+			} else {
+				ROS_ERROR_STREAM("Cannot load input filters config from YAML file " << configFileName);
+			}
+		}
+    }
+
     void allocateMemory(){
-        laserCloudIn.reset(new pcl::PointCloud<PointType>());
-        coefficients.reset(new pcl::ModelCoefficients);
-        inliers.reset(new pcl::PointIndices);
+
     }
 
     void resetParameters(){
-        laserCloudIn->clear();
     }
 
     ~PcdProcessor(){}
 
-	void downSampleCloud() {
-		//std::cout << "downSampleCloud: " << laserCloudIn->size() << "\t";
-		pcl::VoxelGrid<pcl::PCLPointCloud2> sor;
-		pcl::PCLPointCloud2::Ptr laserCloudIn2(new pcl::PCLPointCloud2 ());
-		pcl::toPCLPointCloud2(*laserCloudIn, *laserCloudIn2);
-		sor.setInputCloud(laserCloudIn2);
-		sor.setLeafSize (0.30f, 0.30f, 0.30f);
-		sor.filter(*laserCloudIn2);
-		pcl::fromPCLPointCloud2(*laserCloudIn2, *laserCloudIn);
-		//std::cout << laserCloudIn->size() << std::endl;
-	}
+    void processCloud(std::unique_ptr<DP> newPointCloud, const std::string& scannerFrame, const ros::Time& stamp, uint32_t seq) {
+    	const size_t goodCount(newPointCloud->features.cols()); // Number of points in the cloud
+    	if(goodCount == 0) {
+    		ROS_ERROR("[ICP] No Points for doing ICP");
+    	}
+    	const int dimp1(newPointCloud->features.rows()); // no of dimensions, 3D: 4, 2D: 3
+ 	    
+ 	    //Adding Time Stamp
+ 	    if(!(newPointCloud->descriptorExists("stamps_Msec") 
+ 	    	&& newPointCloud->descriptorExists("stamps_sec") 
+ 	    	&& newPointCloud->descriptorExists("stamps_nsec"))) {
+			const float Msec = round(stamp.sec/1e6);
+			const float sec = round(stamp.sec - Msec*1e6);
+			const float nsec = round(stamp.nsec);
 
-	void passThroughFilter() {
-		//std::cout << "passThroughFilter: " << laserCloudIn->size() << "\t";
-		
-		pcl::PassThrough<pcl::PointXYZ> pass_z;
-		// pass_z.setNegative(true);
-		pass_z.setInputCloud (laserCloudIn);
-		pass_z.setFilterFieldName ("z");
-		pass_z.setFilterLimits (-1, 2);
-		pass_z.filter (*laserCloudIn);
-
-		//std::cout << laserCloudIn->size() << std::endl;
-	}
-
-    void removeGround() {
-    	pcl::ExtractIndices<pcl::PointXYZ> extract;
-    	pcl::SACSegmentation<pcl::PointXYZ> seg;
-    	seg.setOptimizeCoefficients (true);
-    	seg.setModelType (pcl::SACMODEL_PLANE);
-    	seg.setMethodType (pcl::SAC_RANSAC);
-    	seg.setDistanceThreshold (0.3);
-    	seg.setInputCloud (laserCloudIn);
-    	seg.segment (*inliers, *coefficients);
-		if (inliers->indices.size () == 0) {
-		   ROS_ERROR("Could not estimate a planar model for the given dataset.");
-		   return;
-		} else {
-			//std::cout << "laserCloudIn: " << laserCloudIn->size() << "\t";
-			extract.setInputCloud(laserCloudIn);
-			extract.setIndices(inliers);
-			extract.setNegative(true);
-			extract.filter(*laserCloudIn);
-			//std::cout << laserCloudIn->size() << std::endl;
+			const PM::Matrix desc_Msec = PM::Matrix::Constant(1, goodCount, Msec);
+			const PM::Matrix desc_sec = PM::Matrix::Constant(1, goodCount, sec);
+			const PM::Matrix desc_nsec = PM::Matrix::Constant(1, goodCount, nsec);
+			newPointCloud->addDescriptor("stamps_Msec", desc_Msec);
+			newPointCloud->addDescriptor("stamps_sec", desc_sec);
+			newPointCloud->addDescriptor("stamps_nsec", desc_nsec);
 		}
-		passThroughFilter();
-	}
 
-    void publishCloud() {
-		pcl::toROSMsg(*laserCloudIn, laserCloudOut);
-        laserCloudOut.header = cloudHeader;
-		pubFilteredCloud.publish(laserCloudOut);
+		int ptsCount = newPointCloud->getNbPoints();
+		if(ptsCount < minReadingPointCount) {
+			ROS_ERROR_STREAM("[ICP] Not enough points in newPointCloud: only " << ptsCount << " pts.");
+			return;
+		}  	
+
+		timer t;
+		inputFilters.apply(*newPointCloud);
+		ROS_INFO_STREAM("[ICP] Input filters took " << t.elapsed() << " [s]");
+    	
     }
 
-    void cloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg){
-
-        cloudHeader = laserCloudMsg->header;
-        pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn);
-        downSampleCloud();
-        removeGround();
-        publishCloud();
-        resetParameters();
+    void cloudHandler(const sensor_msgs::PointCloud2& cloudMsgIn){
+        std::unique_ptr<DP> cloud(new DP(PointMatcher_ros::rosMsgToPointMatcherCloud<float>(cloudMsgIn)));
+    	processCloud(move(cloud), cloudMsgIn.header.frame_id, cloudMsgIn.header.stamp, cloudMsgIn.header.seq);
     }
 };
 
