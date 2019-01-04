@@ -94,7 +94,7 @@ public:
     }
 
     void cloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg){
-
+        //ROS_INFO("Received Point Cloud");
         cloudHeader = laserCloudMsg->header;
         pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn);
         downSampleCloud();

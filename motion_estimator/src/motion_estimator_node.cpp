@@ -53,9 +53,9 @@ public:
     void getInitTransform() {
         try{
           ros::Time now = ros::Time::now();
-          listener.waitForTransform("/world", "/init_frame",
+          listener.waitForTransform("/map", "/init_frame",
                                     now, ros::Duration(1.0));
-          listener.lookupTransform("/world", "/init_frame",  
+          listener.lookupTransform("/map", "/init_frame",  
                                     now, transform);
           tf::Transform tf_init;
           tf_init.setOrigin(transform.getOrigin());
@@ -73,7 +73,7 @@ public:
 
     void publishICPPath() {
         output_path.header = cloudHeader;
-        output_path.header.frame_id = "world";
+        output_path.header.frame_id = "map";
         output_path.poses.push_back(output_pose);
         pubICPPath.publish(output_path);
     }
@@ -89,7 +89,7 @@ public:
         tf::Quaternion tfqt;
         rotn_tf.getRotation(tfqt);
         output_pose.header = cloudHeader;
-        output_pose.header.frame_id = "world";
+        output_pose.header.frame_id = "map";
         output_pose.pose.position.x = origin.getX();
         output_pose.pose.position.y = origin.getY();
         output_pose.pose.position.z = origin.getZ();
@@ -177,12 +177,12 @@ public:
         if(first_time) {
             first_time = false;
             pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn_1);
-            getInitTransform();
+            //getInitTransform();
             publishICPPose();          
         } else {
             pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn);
-            //runICPPointToPoint();
-            runICPPointToPlane();
+            runICPPointToPoint();
+            //runICPPointToPlane();
             resetVariables();
         }
         
