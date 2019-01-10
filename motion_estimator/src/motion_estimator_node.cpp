@@ -25,6 +25,9 @@ private:
     geometry_msgs::PoseStamped output_pose;
     nav_msgs::Path output_path;
 
+    tf::StampedTransform laserOdometryTrans;
+    tf::TransformBroadcaster tfBroadcaster;
+
 public:
     MotionEstimator():
         nh("~"){
@@ -34,6 +37,8 @@ public:
         pubICPPath = nh.advertise<nav_msgs::Path>("/icp/path", 10);
         first_time = true;
         global_transformation = Eigen::Matrix4f::Identity();
+        laserOdometryTrans.frame_id_ = "/map";
+        laserOdometryTrans.child_frame_id_ = "/lidar_link";
         allocateMemory();
     }
 
@@ -97,6 +102,11 @@ public:
         output_pose.pose.orientation.y = tfqt[1];
         output_pose.pose.orientation.z = tfqt[2];
         output_pose.pose.orientation.w = tfqt[3];
+
+        laserOdometryTrans.stamp_ = cloudHeader.stamp;
+        laserOdometryTrans.setRotation(tfqt);
+        laserOdometryTrans.setOrigin(origin);
+        tfBroadcaster.sendTransform(laserOdometryTrans);
         pubICPPose.publish(output_pose);
         publishICPPath();
     }
@@ -135,39 +145,22 @@ public:
     }
 
     void runICPPointToPlane() {
-        // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_source_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
-        // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_target_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
-        // pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr Final( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
-        // addNormal(laserCloudIn_1, cloud_source_normals);
-        // addNormal(laserCloudIn, cloud_target_normals);
-        // pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal>::Ptr icp ( new pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> () );
-        // icp->setInputSource(cloud_source_normals);
-        // icp->setInputTarget(cloud_target_normals);
-        // icp->align(*Final);
-        // if(icp->hasConverged()) {
-        //     Eigen::Matrix4f transformation = icp->getFinalTransformation().inverse();
-        //     global_transformation = global_transformation*transformation;
-        //     publishICPPose();
-        // } else {
-        //    ROS_WARN("ICP didn't converge"); 
-        // }
-        PointCloudWithNormals::Ptr points_with_normals_src (new PointCloudWithNormals);
-        PointCloudWithNormals::Ptr points_with_normals_tgt (new PointCloudWithNormals);
-        pcl::NormalEstimation<PointT, PointNormalT> norm_est;
-        pcl::search::KdTree<pcl::PointXYZ>::Ptr tree (new pcl::search::KdTree<pcl::PointXYZ> ());
-        norm_est.setSearchMethod(tree);
-        norm_est.setKSearch (30);
-
-        norm_est.setInputCloud (laserCloudIn_1);
-        norm_est.compute (*points_with_normals_src);
-        pcl::copyPointCloud (*laserCloudIn_1, *points_with_normals_src);
-
-        norm_est.setInputCloud (laserCloudIn);
-        norm_est.compute (*points_with_normals_tgt);
-        pcl::copyPointCloud (*laserCloudIn, *points_with_normals_tgt);
-
-        MyPointRepresentation point_representation;
-        float alpha[4] = {1.0, 1.};
+        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_source_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr cloud_target_normals ( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        pcl::PointCloud<pcl::PointXYZRGBNormal>::Ptr Final( new pcl::PointCloud<pcl::PointXYZRGBNormal> () );
+        addNormal(laserCloudIn_1, cloud_source_normals);
+        addNormal(laserCloudIn, cloud_target_normals);
+        pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal>::Ptr icp ( new pcl::IterativeClosestPointWithNormals<pcl::PointXYZRGBNormal, pcl::PointXYZRGBNormal> () );
+        icp->setInputSource(cloud_source_normals);
+        icp->setInputTarget(cloud_target_normals);
+        icp->align(*Final);
+        if(icp->hasConverged()) {
+            Eigen::Matrix4f transformation = icp->getFinalTransformation().inverse();
+            global_transformation = global_transformation*transformation;
+            publishICPPose();
+        } else {
+           ROS_WARN("ICP didn't converge"); 
+        }
     }
     
     //https://github.com/tttamaki/ICP-test/blob/master/src/icp3_with_normal_iterative_view.cpp
@@ -181,11 +174,10 @@ public:
             publishICPPose();          
         } else {
             pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn);
-            runICPPointToPoint();
-            //runICPPointToPlane();
+            //runICPPointToPoint();
+            runICPPointToPlane();
             resetVariables();
         }
-        
     }
 };
 

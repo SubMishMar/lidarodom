@@ -94,8 +94,8 @@ public:
     }
 
     void cloudHandler(const sensor_msgs::PointCloud2ConstPtr& laserCloudMsg){
-        //ROS_INFO("Received Point Cloud");
         cloudHeader = laserCloudMsg->header;
+        cloudHeader.frame_id = "lidar_link";
         pcl::fromROSMsg(*laserCloudMsg, *laserCloudIn);
         downSampleCloud();
         removeGround();
